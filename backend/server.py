@@ -2,6 +2,7 @@ import os
 import uuid
 from datetime import datetime, timedelta
 from typing import List, Literal, Optional
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,8 +28,37 @@ if not MONGO_URL:
 if not SECRET_KEY:
     raise RuntimeError('SECRET_KEY not found in environment. Please set it in backend/.env')
 
-# Initialize FastAPI app
-app = FastAPI(title='University Complaint Box API', version='1.0.0')
+# Database setup
+client: Optional[AsyncIOMotorClient] = None
+db = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI lifespan handler to manage startup/shutdown without deprecated on_event."""
+    global client, db
+    client = AsyncIOMotorClient(MONGO_URL)
+    # Extract DB name from URI path
+    path = MONGO_URL.split('/')[-1]
+    db_name = path.split('?')[0] if path else None
+    if not db_name:
+        raise RuntimeError('Database name not found in MONGO_URL. Please include it in the URI.')
+    db = client[db_name]
+
+    # Ensure indexes
+    await db.users.create_index('email', unique=True)
+    await db.complaints.create_index('studentId')
+    await db.complaints.create_index('createdAt')
+
+    try:
+        yield
+    finally:
+        if client:
+            client.close()
+
+
+# Initialize FastAPI app with lifespan
+app = FastAPI(title='University Complaint Box API', version='1.0.0', lifespan=lifespan)
 
 # CORS (allow all for now; adjust as needed)
 app.add_middleware(
@@ -60,32 +90,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return encoded_jwt
 
 
-# Database setup
-client: Optional[AsyncIOMotorClient] = None
-db = None
-
-
-@app.on_event('startup')
-async def on_startup():
-    global client, db
-    client = AsyncIOMotorClient(MONGO_URL)
-    # Extract DB name from URI path
-    path = MONGO_URL.split('/')[-1]
-    db_name = path.split('?')[0] if path else None
-    if not db_name:
-        raise RuntimeError('Database name not found in MONGO_URL. Please include it in the URI.')
-    db = client[db_name]
-
-    # Ensure indexes
-    await db.users.create_index('email', unique=True)
-    await db.complaints.create_index('studentId')
-    await db.complaints.create_index('createdAt')
-
-
-@app.on_event('shutdown')
-async def on_shutdown():
-    if client:
-        client.close()
+# (Startup/shutdown handled by lifespan above)
 
 
 # Pydantic models
