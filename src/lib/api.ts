@@ -106,7 +106,7 @@ export const api = {
   },
 
   async addFeedback(complaintId: string, rating: number, comment: string) {
-    const res = await fetch(`${getBackendUrl()}/complaints/${encodeURIComponent(CryptoJS ? complaintId : complaintId)}/feedback`, {
+    const res = await fetch(`${getBackendUrl()}/complaints/${encodeURIComponent(complaintId)}/feedback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...withAuthHeaders() },
       body: JSON.stringify({ rating, comment }),
