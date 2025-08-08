@@ -352,7 +352,7 @@ async def add_response(
     res = await db.complaints.find_one_and_update(
         {'id': complaint_id},
         {'$set': {'updatedAt': now}, '$push': {'responses': response_doc}},
-        return_document=True,
+        return_document=ReturnDocument.AFTER,
     )
     if not res:
         raise HTTPException(status_code=404, detail='Complaint not found')
