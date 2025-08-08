@@ -1,6 +1,6 @@
 /* Centralized API client using fetch and JWT token from localStorage.
    IMPORTANT: Frontend API calls MUST ONLY use REACT_APP_BACKEND_URL from env.
-   Ensure your environment sets REACT_APP_BACKEND_URL and that it already includes '/api' prefix. */
+   Ensure your environment sets REACT_APP_BACKEND_URL and that it already includes '/api' prefix (per platform rules). */
 
 export type LoginResponse = { access_token: string; token_type: string };
 
