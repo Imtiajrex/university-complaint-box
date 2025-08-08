@@ -324,7 +324,7 @@ async def update_status(
     res = await db.complaints.find_one_and_update(
         {'id': complaint_id},
         {'$set': {'status': new_status, 'updatedAt': now}},
-        return_document=True,
+        return_document=ReturnDocument.AFTER,
     )
     if not res:
         raise HTTPException(status_code=404, detail='Complaint not found')
