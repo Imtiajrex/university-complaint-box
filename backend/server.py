@@ -380,7 +380,7 @@ async def add_feedback(
     res = await db.complaints.find_one_and_update(
         {'id': complaint_id},
         {'$set': {'feedback': {'rating': body.rating, 'comment': body.comment}, 'updatedAt': now}},
-        return_document=True,
+        return_document=ReturnDocument.AFTER,
     )
     if not res:
         raise HTTPException(status_code=404, detail='Complaint not found after update')
