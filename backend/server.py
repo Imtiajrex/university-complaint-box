@@ -11,6 +11,7 @@ from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr, Field
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ReturnDocument
 
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
