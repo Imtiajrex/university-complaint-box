@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { User, AuthContextType } from '../types';
-import { users as mockUsers } from '../data/mockData';
+import { api } from '../lib/api';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -20,76 +21,104 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
+
+  // On mount, if token exists try fetching /me
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const { data: meData, isLoading: meLoading, error: meError } = useQuery({
+    queryKey: ['auth', 'me'],
+    queryFn: () => api.me(),
+    enabled: Boolean(token),
+    retry: 1,
+  });
 
   useEffect(() => {
-    // Check if user is stored in local storage
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
+    if (meData) {
+      const mapped: User = {
+        id: meData.id,
+        name: meData.name,
+        email: meData.email,
+        role: meData.role,
+        department: meData.department,
+        studentId: meData.studentId,
+      };
+      setUser(mapped);
+      setIsLoading(false);
+    } else if (!token) {
+      setIsLoading(false);
     }
-    setIsLoading(false);
-  }, []);
+  }, [meData, token]);
+
+  useEffect(() => {
+    if (meError) {
+      setError(meError instanceof Error ? meError.message : 'Failed to authenticate');
+      setIsLoading(false);
+    }
+  }, [meError]);
+
+  const loginMutation = useMutation({
+    mutationFn: ({ email, password }: { email: string; password: string }) => api.login(email, password),
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: (payload: { name: string; email: string; password: string; role: 'student'|'admin'; department?: string; studentId?: string }) => api.register(payload),
+  });
 
   const login = async (email: string, password: string) => {
     setIsLoading(true);
     setError(null);
-    
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // In a real app, this would be an API call to validate credentials
-      const foundUser = mockUsers.find(u => u.email === email);
-      
-      if (foundUser) {
-        setUser(foundUser);
-        localStorage.setItem('user', JSON.stringify(foundUser));
-      } else {
-        throw new Error('Invalid credentials');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      const resp = await loginMutation.mutateAsync({ email, password });
+      localStorage.setItem('token', resp.access_token);
+      // refetch /me
+      const me = await api.me();
+      const mapped: User = {
+        id: me.id,
+        name: me.name,
+        email: me.email,
+        role: me.role,
+        department: me.department,
+        studentId: me.studentId,
+      };
+      setUser(mapped);
+      localStorage.setItem('user', JSON.stringify(mapped));
+      await qc.invalidateQueries({ queryKey: ['complaints'] });
+    } catch (err: any) {
+      setError(err?.message || 'Login failed');
+      throw err;
     } finally {
       setIsLoading(false);
     }
   };
 
   const register = async (
-    name: string, 
-    email: string, 
-    password: string, 
+    name: string,
+    email: string,
+    password: string,
     role: 'student' | 'admin',
     department?: string,
     studentId?: string
   ) => {
     setIsLoading(true);
     setError(null);
-    
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Check if user already exists
-      const existingUser = mockUsers.find(u => u.email === email);
-      if (existingUser) {
-        throw new Error('User already exists');
-      }
-      
-      // In a real app, this would create a new user in the database
-      const newUser: User = {
-        id: `u${mockUsers.length + 1}`,
-        name,
-        email,
-        role,
-        department,
-        studentId
+      const resp = await registerMutation.mutateAsync({ name, email, password, role, department, studentId });
+      localStorage.setItem('token', resp.access_token);
+      const me = await api.me();
+      const mapped: User = {
+        id: me.id,
+        name: me.name,
+        email: me.email,
+        role: me.role,
+        department: me.department,
+        studentId: me.studentId,
       };
-      
-      mockUsers.push(newUser);
-      setUser(newUser);
-      localStorage.setItem('user', JSON.stringify(newUser));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setUser(mapped);
+      localStorage.setItem('user', JSON.stringify(mapped));
+      await qc.invalidateQueries({ queryKey: ['complaints'] });
+    } catch (err: any) {
+      setError(err?.message || 'Registration failed');
+      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -98,15 +127,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const logout = () => {
     setUser(null);
     localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    qc.clear();
   };
 
-  const value = {
+  const value: AuthContextType = {
     user,
     login,
     register,
     logout,
-    isLoading,
-    error
+    isLoading: isLoading || meLoading,
+    error,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

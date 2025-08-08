@@ -1,7 +1,8 @@
-import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, ReactNode } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Complaint, ComplaintStatus, ComplaintsContextType } from '../types';
-import { complaints as mockComplaints } from '../data/mockData';
 import { useAuth } from './AuthContext';
+import { api } from '../lib/api';
 
 const ComplaintsContext = createContext<ComplaintsContextType | undefined>(undefined);
 
@@ -18,101 +19,85 @@ type ComplaintsProviderProps = {
 };
 
 export const ComplaintsProvider: React.FC<ComplaintsProviderProps> = ({ children }) => {
-  const [complaints, setComplaints] = useState<Complaint[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
+  const qc = useQueryClient();
 
-  useEffect(() => {
-    // Load complaints
-    setIsLoading(true);
-    try {
-      // In a real app, this would be an API call
-      setComplaints(mockComplaints);
-    } catch (err) {
-      setError('Failed to load complaints');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['complaints', user?.id],
+    queryFn: async () => {
+      const list = await api.getComplaints();
+      // map date strings to Date objects to match types
+      const mapped: Complaint[] = list.map((c: any) => ({
+        ...c,
+        createdAt: new Date(c.createdAt),
+        updatedAt: new Date(c.updatedAt),
+        responses: (c.responses || []).map((r: any) => ({ ...r, createdAt: new Date(r.createdAt) })),
+      }));
+      return mapped;
+    },
+    enabled: Boolean(user),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (payload: Omit<Complaint, 'id' | 'createdAt' | 'updatedAt' | 'responses'>) =>
+      api.createComplaint({
+        title: payload.title,
+        description: payload.description,
+        category: payload.category,
+        department: payload.department,
+        isAnonymous: payload.isAnonymous,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['complaints'] }),
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: ({ complaintId, status }: { complaintId: string; status: ComplaintStatus }) =>
+      api.updateComplaintStatus(complaintId, status),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['complaints'] }),
+  });
+
+  const responseMutation = useMutation({
+    mutationFn: ({ complaintId, content }: { complaintId: string; content: string }) =>
+      api.addResponse(complaintId, content),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['complaints'] }),
+  });
+
+  const feedbackMutation = useMutation({
+    mutationFn: ({ complaintId, rating, comment }: { complaintId: string; rating: number; comment: string }) =>
+      api.addFeedback(complaintId, rating, comment),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['complaints'] }),
+  });
 
   const addComplaint = (
     complaintData: Omit<Complaint, 'id' | 'createdAt' | 'updatedAt' | 'responses'>
   ) => {
     if (!user) return;
-    
-    const newComplaint: Complaint = {
-      ...complaintData,
-      id: `c${complaints.length + 1}`,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      responses: [],
-    };
-    
-    setComplaints(prev => [newComplaint, ...prev]);
+    createMutation.mutate(complaintData as any);
   };
 
   const updateComplaintStatus = (complaintId: string, status: ComplaintStatus) => {
     if (!user || user.role !== 'admin') return;
-    
-    setComplaints(prev =>
-      prev.map(complaint =>
-        complaint.id === complaintId
-          ? { ...complaint, status, updatedAt: new Date() }
-          : complaint
-      )
-    );
+    statusMutation.mutate({ complaintId, status });
   };
 
   const addResponse = (complaintId: string, content: string) => {
     if (!user || user.role !== 'admin') return;
-    
-    setComplaints(prev =>
-      prev.map(complaint => {
-        if (complaint.id === complaintId) {
-          const newResponse = {
-            id: `r${complaint.responses.length + 1}`,
-            content,
-            createdAt: new Date(),
-            adminName: user.name,
-            adminId: user.id,
-          };
-          
-          return {
-            ...complaint,
-            responses: [...complaint.responses, newResponse],
-            updatedAt: new Date(),
-          };
-        }
-        return complaint;
-      })
-    );
+    responseMutation.mutate({ complaintId, content });
   };
 
   const addFeedback = (complaintId: string, rating: number, comment: string) => {
     if (!user || user.role !== 'student') return;
-    
-    setComplaints(prev =>
-      prev.map(complaint =>
-        complaint.id === complaintId
-          ? {
-              ...complaint,
-              feedback: { rating, comment },
-              updatedAt: new Date(),
-            }
-          : complaint
-      )
-    );
+    feedbackMutation.mutate({ complaintId, rating, comment });
   };
 
-  const value = {
-    complaints,
+  const value: ComplaintsContextType = {
+    complaints: data || [],
     addComplaint,
     updateComplaintStatus,
     addResponse,
     addFeedback,
-    isLoading,
-    error,
+    isLoading: isLoading,
+    error: error ? (error as any).message || 'Failed to load complaints' : null,
   };
 
   return <ComplaintsContext.Provider value={value}>{children}</ComplaintsContext.Provider>;
