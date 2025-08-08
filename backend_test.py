@@ -12,7 +12,7 @@ import sys
 
 # Get the base URL from environment or use default
 PREVIEW_HOST = os.getenv('PREVIEW_PROXY_SERVICE_SERVICE_HOST', 'localhost')
-BASE_URL = f"http://{PREVIEW_HOST}"
+BASE_URL = f"http://localhost:8001"
 
 def wait_for_backend(max_wait=20):
     """Wait for backend to be ready"""
