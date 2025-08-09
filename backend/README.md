@@ -1,21 +1,33 @@
-```txt
-npm install
-npm run dev
-```
+Backend API (Hono + MongoDB)
 
-```txt
-npm run deploy
-```
+Setup
 
-[For generating/synchronizing types based on your Worker configuration run](https://developers.cloudflare.com/workers/wrangler/commands/#types):
+- Copy .env.example to .env and fill values.
+- Install deps: bun install
 
-```txt
-npm run cf-typegen
-```
+Run
 
-Pass the `CloudflareBindings` as generics when instantiation `Hono`:
+- Dev: bun run dev (serves on http://localhost:8787)
+- Start: bun run start
 
-```ts
-// src/index.ts
-const app = new Hono<{ Bindings: CloudflareBindings }>()
-```
+Important env
+
+- SECRET_KEY: JWT secret
+- MONGO_URL: Mongo connection string (must include DB name)
+- ACCESS_TOKEN_EXPIRE_MINUTES: default 60
+- REACT_APP_BACKEND_URL: for frontend, e.g. http://localhost:8787/api
+
+Endpoints (prefix /api)
+
+- GET /health -> { status: 'ok' }
+- POST /auth/register { name,email,password,role,department?,studentId? }
+  -> { access_token, token_type }
+- POST /auth/login (x-www-form-urlencoded: username, password)
+  -> { access_token, token_type }
+- GET /auth/me (Bearer token)
+- POST /complaints (Bearer) { title,description,category,department,isAnonymous }
+- GET /complaints?status_filter=...
+- GET /complaints/:id
+- PATCH /complaints/:id/status?new_status=...
+- POST /complaints/:id/responses { content } (admin only)
+- POST /complaints/:id/feedback { rating, comment } (owner only)
