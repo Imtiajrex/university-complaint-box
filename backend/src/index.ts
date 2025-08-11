@@ -362,7 +362,7 @@ app.post("/api/complaints/:id/feedback", async (c) => {
 export default app;
 
 // Start server when executed under Bun
-const port = Number(process.env.PORT || 8787);
+const port = Number(8787);
 // @ts-ignore - Bun global exists when running under Bun
 if (typeof Bun !== "undefined" && (Bun as any)?.serve) {
 	// @ts-ignore - types provided by @types/bun in devDependencies
