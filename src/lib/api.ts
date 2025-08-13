@@ -7,7 +7,9 @@ export type LoginResponse = { access_token: string; token_type: string };
 const getBackendUrl = (): string => {
 	// Per platform rules, the frontend must use REACT_APP_BACKEND_URL
 	// We try both import.meta.env and process.env for compatibility
-	const url = "https://university-complaint-box.onrender.com/api";
+	const url = import.meta.env.DEV
+		? "http://localhost:8787/api"
+		: "https://university-complaint-box.onrender.com/api";
 	if (!url) {
 		throw new Error(
 			"REACT_APP_BACKEND_URL is not set. Please set it in the frontend environment."
@@ -79,11 +81,7 @@ export const api = {
 
 	// COMPLAINTS
 	async getComplaints(status_filter?: string) {
-		const url = new URL(
-			`${getBackendUrl()}/complaints`,
-			window.location.origin
-		);
-		// We cannot construct absolute URL reliably with URL without origin in some environments; use string concat
+		// Build URL via string concatenation for compatibility across environments
 		const full = `${getBackendUrl()}/complaints${
 			status_filter ? `?status_filter=${encodeURIComponent(status_filter)}` : ""
 		}`;
@@ -142,6 +140,76 @@ export const api = {
 				method: "POST",
 				headers: { "Content-Type": "application/json", ...withAuthHeaders() },
 				body: JSON.stringify({ rating, comment }),
+			}
+		);
+		return handleResponse(res);
+	},
+
+	// ADMIN MANAGEMENT
+	async listAdmins() {
+		const res = await fetch(`${getBackendUrl()}/admins`, {
+			headers: withAuthHeaders(),
+		});
+		return handleResponse(res);
+	},
+	async createAdmin(body: {
+		name: string;
+		email: string;
+		password: string;
+		department?: string | null;
+	}) {
+		const res = await fetch(`${getBackendUrl()}/admins`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", ...withAuthHeaders() },
+			body: JSON.stringify(body),
+		});
+		return handleResponse(res);
+	},
+	async updateAdmin(
+		id: string,
+		body: {
+			name?: string;
+			email?: string;
+			password?: string;
+			department?: string | null;
+		}
+	) {
+		const res = await fetch(
+			`${getBackendUrl()}/admins/${encodeURIComponent(id)}`,
+			{
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", ...withAuthHeaders() },
+				body: JSON.stringify(body),
+			}
+		);
+		return handleResponse(res);
+	},
+	async deleteAdmin(id: string) {
+		const res = await fetch(
+			`${getBackendUrl()}/admins/${encodeURIComponent(id)}`,
+			{
+				method: "DELETE",
+				headers: withAuthHeaders(),
+			}
+		);
+		return handleResponse(res);
+	},
+	// STUDENT MANAGEMENT
+	async listStudents(params?: { q?: string; department?: string }) {
+		const searchParams = new URLSearchParams();
+		if (params?.q) searchParams.set("q", params.q);
+		if (params?.department) searchParams.set("department", params.department);
+		const qs = searchParams.toString();
+		const url = `${getBackendUrl()}/students${qs ? `?${qs}` : ""}`;
+		const res = await fetch(url, { headers: withAuthHeaders() });
+		return handleResponse(res);
+	},
+	async deleteStudent(id: string) {
+		const res = await fetch(
+			`${getBackendUrl()}/students/${encodeURIComponent(id)}`,
+			{
+				method: "DELETE",
+				headers: withAuthHeaders(),
 			}
 		);
 		return handleResponse(res);

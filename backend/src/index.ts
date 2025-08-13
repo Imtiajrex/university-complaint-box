@@ -149,7 +149,7 @@ app.use(
 	"/*",
 	cors({
 		origin: "*",
-		allowMethods: ["GET", "POST", "PATCH", "OPTIONS"],
+		allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
 		credentials: true,
 	})
 );
@@ -359,7 +359,176 @@ app.post("/api/complaints/:id/feedback", async (c) => {
 	return c.json(doc);
 });
 
+// ----------------------
+// Admin management APIs
+// ----------------------
+
+// List admins
+app.get("/api/admins", async (c) => {
+	const admin = await requireAdmin(c);
+	if (admin === "unauthorized")
+		return c.json({ detail: "Could not validate credentials" }, 401);
+	if (admin === "forbidden")
+		return c.json({ detail: "Admin privileges required" }, 403);
+	await getDb();
+	const admins = await usersCol
+		.find({ role: "admin" }, { projection: { password_hash: 0 } as any })
+		.sort({ name: 1 })
+		.toArray();
+	return c.json(admins);
+});
+
+// Create admin
+app.post("/api/admins", async (c) => {
+	const admin = await requireAdmin(c);
+	if (admin === "unauthorized")
+		return c.json({ detail: "Could not validate credentials" }, 401);
+	if (admin === "forbidden")
+		return c.json({ detail: "Admin privileges required" }, 403);
+	const body = await c.req.json().catch(() => null);
+	if (!body) return c.json({ detail: "Invalid JSON" }, 400);
+	const { name, email, password, department } = body as {
+		name: string;
+		email: string;
+		password: string;
+		department?: string | null;
+	};
+	if (!name || !email || !password)
+		return c.json({ detail: "Missing required fields" }, 400);
+	await getDb();
+	const existing = await usersCol.findOne({ email });
+	if (existing)
+		return c.json({ detail: "User with this email already exists" }, 400);
+	const id = crypto.randomUUID();
+	const password_hash = bcrypt.hashSync(password, 10);
+	const doc: UserDoc = {
+		id,
+		name,
+		email,
+		role: "admin",
+		department: department ?? null,
+		studentId: null,
+		password_hash,
+	};
+	await usersCol.insertOne(doc);
+	const out: UserOut = {
+		id: doc.id,
+		name: doc.name,
+		email: doc.email,
+		role: doc.role,
+		department: doc.department ?? undefined,
+		studentId: undefined,
+	} as any;
+	return c.json(out, 201);
+});
+
+// Update admin (name/email/department, optional password)
+app.patch("/api/admins/:id", async (c) => {
+	const admin = await requireAdmin(c);
+	if (admin === "unauthorized")
+		return c.json({ detail: "Could not validate credentials" }, 401);
+	if (admin === "forbidden")
+		return c.json({ detail: "Admin privileges required" }, 403);
+	const id = c.req.param("id");
+	const body = await c.req.json().catch(() => null);
+	if (!body) return c.json({ detail: "Invalid JSON" }, 400);
+	const { name, email, department, password } = body as {
+		name?: string;
+		email?: string;
+		department?: string | null;
+		password?: string;
+	};
+	await getDb();
+	const updates: any = {};
+	if (name !== undefined) updates.name = name;
+	if (email !== undefined) updates.email = email;
+	if (department !== undefined) updates.department = department;
+	if (password) updates.password_hash = bcrypt.hashSync(password, 10);
+	if (Object.keys(updates).length === 0)
+		return c.json({ detail: "No updates provided" }, 400);
+	const result = await usersCol.findOneAndUpdate(
+		{ id, role: "admin" },
+		{ $set: updates },
+		{ returnDocument: "after", projection: { password_hash: 0 } as any }
+	);
+	const doc = result as any;
+	if (!doc) return c.json({ detail: "Admin not found" }, 404);
+	return c.json(doc);
+});
+
+// Delete admin
+app.delete("/api/admins/:id", async (c) => {
+	const admin = await requireAdmin(c);
+	if (admin === "unauthorized")
+		return c.json({ detail: "Could not validate credentials" }, 401);
+	if (admin === "forbidden")
+		return c.json({ detail: "Admin privileges required" }, 403);
+	const id = c.req.param("id");
+	await getDb();
+	// prevent deleting self
+	if (id === admin.id)
+		return c.json({ detail: "You cannot delete your own admin account" }, 400);
+	// prevent deleting last admin
+	const adminCount = await usersCol.countDocuments({ role: "admin" });
+	if (adminCount <= 1)
+		return c.json({ detail: "Cannot delete the last remaining admin" }, 400);
+	const res = await usersCol.deleteOne({ id, role: "admin" });
+	if (!res.deletedCount) return c.json({ detail: "Admin not found" }, 404);
+	return c.json({ ok: true });
+});
+
 export default app;
+
+// ------------------------
+// Student management APIs
+// ------------------------
+
+// List students with optional filters
+app.get("/api/students", async (c) => {
+	const admin = await requireAdmin(c);
+	if (admin === "unauthorized")
+		return c.json({ detail: "Could not validate credentials" }, 401);
+	if (admin === "forbidden")
+		return c.json({ detail: "Admin privileges required" }, 403);
+	const q = (c.req.query("q") || "").trim();
+	const department = (c.req.query("department") || "").trim();
+	await getDb();
+	const query: any = { role: "student" };
+	if (q) {
+		const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+		query.$or = [
+			{ name: { $regex: regex } },
+			{ email: { $regex: regex } },
+			{ studentId: { $regex: regex } },
+		];
+	}
+	if (department && department !== "all") {
+		query.department = department;
+	}
+	const students = await usersCol
+		.find(query, { projection: { password_hash: 0 } as any })
+		.sort({ name: 1 })
+		.toArray();
+	return c.json(students);
+});
+
+// Delete student
+app.delete("/api/students/:id", async (c) => {
+	const admin = await requireAdmin(c);
+	if (admin === "unauthorized")
+		return c.json({ detail: "Could not validate credentials" }, 401);
+	if (admin === "forbidden")
+		return c.json({ detail: "Admin privileges required" }, 403);
+	const id = c.req.param("id");
+	await getDb();
+	const target = await usersCol.findOne({ id });
+	if (!target) return c.json({ detail: "User not found" }, 404);
+	if (target.role !== "student")
+		return c.json({ detail: "Only students can be deleted here" }, 400);
+	const res = await usersCol.deleteOne({ id, role: "student" });
+	if (!res.deletedCount) return c.json({ detail: "Student not found" }, 404);
+	return c.json({ ok: true });
+});
 
 // Start server when executed under Bun
 const port = Number(8787);
