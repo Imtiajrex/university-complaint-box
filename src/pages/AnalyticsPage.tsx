@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useComplaints } from "../contexts/ComplaintsContext";
 import { Card, CardHeader, CardContent } from "../components/ui/Card";
 import Select from "../components/ui/Select";
@@ -23,33 +23,188 @@ const AnalyticsPage: React.FC = () => {
 		"month"
 	);
 
-	// Calculate statistics
-	const totalComplaints = complaints.length;
-	const resolvedComplaints = complaints.filter(
+	// Helper: get start date for selected range
+	const rangeStart = useMemo(() => {
+		const now = new Date();
+		const d = new Date(now);
+		if (timeRange === "week") {
+			d.setDate(now.getDate() - 6); // include today + previous 6 days
+		} else if (timeRange === "month") {
+			d.setDate(now.getDate() - 29); // last 30 days
+		} else {
+			d.setFullYear(now.getFullYear() - 1); // last 12 months
+			d.setDate(d.getDate() + 1); // inclusive range
+		}
+		d.setHours(0, 0, 0, 0);
+		return d;
+	}, [timeRange]);
+
+	// Filter by time range (by complaint creation time)
+	const filtered = useMemo(
+		() => complaints.filter((c) => c.createdAt >= rangeStart),
+		[complaints, rangeStart]
+	);
+
+	// Calculate statistics based on filtered set
+	const totalComplaints = filtered.length;
+	const resolvedComplaints = filtered.filter(
 		(c) => c.status === "resolved"
 	).length;
-	const pendingComplaints = complaints.filter(
+	const pendingComplaints = filtered.filter(
 		(c) => c.status === "pending"
 	).length;
-	const averageResponseTime = "";
+
+	// Helper: first response time in ms, or null if no responses
+	const getFirstResponseMs = (c: {
+		createdAt: Date;
+		responses: { createdAt: Date }[];
+	}) => {
+		if (!c.responses || c.responses.length === 0) return null;
+		const first = c.responses.reduce(
+			(min, r) => (r.createdAt < min ? r.createdAt : min),
+			c.responses[0].createdAt
+		);
+		const diff = first.getTime() - c.createdAt.getTime();
+		return diff >= 0 ? diff : null;
+	};
+
+	const averageResponseTime = useMemo(() => {
+		const deltas = filtered
+			.map(getFirstResponseMs)
+			.filter((ms): ms is number => ms !== null);
+		if (deltas.length === 0) return "N/A";
+		const avg = deltas.reduce((a, b) => a + b, 0) / deltas.length;
+		// format avg
+		const minutes = Math.round(avg / 60000);
+		if (minutes < 60) return `${minutes}m`;
+		const hours = Math.floor(minutes / 60);
+		const remMin = minutes % 60;
+		if (hours < 24) return `${hours}h ${remMin}m`;
+		const days = Math.floor(hours / 24);
+		const remH = hours % 24;
+		return `${days}d ${remH}h`;
+	}, [filtered]);
 
 	// Calculate category distribution
-	const categoryDistribution = complaints.reduce((acc, complaint) => {
+	const categoryDistribution = filtered.reduce((acc, complaint) => {
 		acc[complaint.category] = (acc[complaint.category] || 0) + 1;
 		return acc;
 	}, {} as Record<ComplaintCategory, number>);
 
 	// Calculate department distribution
-	const departmentDistribution = complaints.reduce((acc, complaint) => {
+	const departmentDistribution = filtered.reduce((acc, complaint) => {
 		acc[complaint.department] = (acc[complaint.department] || 0) + 1;
 		return acc;
 	}, {} as Record<Department, number>);
 
 	// Calculate status distribution
-	const statusDistribution = complaints.reduce((acc, complaint) => {
+	const statusDistribution = filtered.reduce((acc, complaint) => {
 		acc[complaint.status] = (acc[complaint.status] || 0) + 1;
 		return acc;
 	}, {} as Record<ComplaintStatus, number>);
+
+	// Build response time trend buckets per selected range
+	type TrendBucket = { key: string; label: string; avgMs: number | null };
+	const trendBuckets: TrendBucket[] = useMemo(() => {
+		const buckets: TrendBucket[] = [];
+		const now = new Date();
+		const pad = (n: number) => String(n).padStart(2, "0");
+
+		if (timeRange === "week") {
+			// 7 days including today
+			for (let i = 6; i >= 0; i--) {
+				const d = new Date(now);
+				d.setDate(now.getDate() - i);
+				d.setHours(0, 0, 0, 0);
+				const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+					d.getDate()
+				)}`;
+				const label = d.toLocaleDateString(undefined, { weekday: "short" });
+				buckets.push({ key, label, avgMs: null });
+			}
+			// aggregate
+			const map = new Map(buckets.map((b) => [b.key, [] as number[]]));
+			filtered.forEach((c) => {
+				const d = new Date(c.createdAt);
+				d.setHours(0, 0, 0, 0);
+				const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+					d.getDate()
+				)}`;
+				const ms = getFirstResponseMs(c);
+				if (map.has(key) && ms !== null) map.get(key)!.push(ms);
+			});
+			buckets.forEach((b) => {
+				const arr = map.get(b.key) || [];
+				b.avgMs = arr.length
+					? arr.reduce((a, x) => a + x, 0) / arr.length
+					: null;
+			});
+		} else if (timeRange === "month") {
+			// Group into 4 roughly equal weekly buckets ending today
+			const starts: Date[] = [];
+			const end = new Date(now);
+			end.setHours(23, 59, 59, 999);
+			for (let i = 4; i >= 1; i--) {
+				const start = new Date(now);
+				start.setDate(now.getDate() - i * 7 + 1);
+				start.setHours(0, 0, 0, 0);
+				starts.push(start);
+			}
+			const ends: Date[] = [...starts.slice(1), end];
+			for (let i = 0; i < starts.length; i++) {
+				const s = starts[i];
+				const e = ends[i];
+				const key = `${s.getFullYear()}-${pad(s.getMonth() + 1)}-${pad(
+					s.getDate()
+				)}`;
+				const label = `${s.toLocaleDateString(undefined, {
+					month: "short",
+					day: "numeric",
+				})}`;
+				buckets.push({ key, label, avgMs: null });
+				const arr = filtered
+					.filter((c) => c.createdAt >= s && c.createdAt <= e)
+					.map(getFirstResponseMs)
+					.filter((ms): ms is number => ms !== null);
+				buckets[buckets.length - 1].avgMs = arr.length
+					? arr.reduce((a, x) => a + x, 0) / arr.length
+					: null;
+			}
+		} else {
+			// year: last 12 months, bucket by month
+			for (let i = 11; i >= 0; i--) {
+				const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+				const start = new Date(d);
+				const end = new Date(
+					d.getFullYear(),
+					d.getMonth() + 1,
+					0,
+					23,
+					59,
+					59,
+					999
+				);
+				const key = `${start.getFullYear()}-${pad(start.getMonth() + 1)}`;
+				const label = start.toLocaleDateString(undefined, { month: "short" });
+				const arr = filtered
+					.filter((c) => c.createdAt >= start && c.createdAt <= end)
+					.map(getFirstResponseMs)
+					.filter((ms): ms is number => ms !== null);
+				const avg = arr.length
+					? arr.reduce((a, x) => a + x, 0) / arr.length
+					: null;
+				buckets.push({ key, label, avgMs: avg });
+			}
+		}
+		return buckets;
+	}, [filtered, timeRange]);
+
+	const maxAvgMs = useMemo(() => {
+		return trendBuckets.reduce(
+			(m, b) => (b.avgMs && b.avgMs > m ? b.avgMs : m),
+			0
+		);
+	}, [trendBuckets]);
 
 	return (
 		<div>
@@ -167,7 +322,13 @@ const AnalyticsPage: React.FC = () => {
 										<div className="relative h-4 bg-gray-100 rounded-full overflow-hidden">
 											<div
 												className="absolute h-full bg-blue-600 rounded-full"
-												style={{ width: `${(count / totalComplaints) * 100}%` }}
+												style={{
+													width: `${
+														totalComplaints
+															? (count / totalComplaints) * 100
+															: 0
+													}%`,
+												}}
 											/>
 										</div>
 									</div>
@@ -199,7 +360,11 @@ const AnalyticsPage: React.FC = () => {
 												<div
 													className="absolute h-full bg-green-600 rounded-full"
 													style={{
-														width: `${(count / totalComplaints) * 100}%`,
+														width: `${
+															totalComplaints
+																? (count / totalComplaints) * 100
+																: 0
+														}%`,
 													}}
 												/>
 											</div>
@@ -231,7 +396,13 @@ const AnalyticsPage: React.FC = () => {
 										<div className="relative h-4 bg-gray-100 rounded-full overflow-hidden">
 											<div
 												className="absolute h-full bg-purple-600 rounded-full"
-												style={{ width: `${(count / totalComplaints) * 100}%` }}
+												style={{
+													width: `${
+														totalComplaints
+															? (count / totalComplaints) * 100
+															: 0
+													}%`,
+												}}
 											/>
 										</div>
 									</div>
@@ -251,9 +422,48 @@ const AnalyticsPage: React.FC = () => {
 						<h2 className="text-lg font-semibold">Response Time Trends</h2>
 					</CardHeader>
 					<CardContent>
-						<div className="p-4 text-center text-gray-500">
-							<p>Response time visualization would go here</p>
-							<p className="text-sm">(Data visualization to be implemented)</p>
+						<div className="space-y-3">
+							{trendBuckets.map((b, idx) => (
+								<div
+									key={`${b.key}-${idx}`}
+									className="flex items-center gap-3"
+								>
+									<div className="w-16 text-xs text-gray-600">{b.label}</div>
+									<div className="flex-1">
+										<div className="relative h-3 bg-gray-100 rounded-full overflow-hidden">
+											<div
+												className="absolute h-full bg-amber-500 rounded-full"
+												style={{
+													width: `${
+														maxAvgMs && b.avgMs
+															? Math.max(5, (b.avgMs / maxAvgMs) * 100)
+															: 0
+													}%`,
+												}}
+											/>
+										</div>
+									</div>
+									<div className="w-20 text-right text-xs text-gray-600">
+										{b.avgMs === null
+											? "N/A"
+											: (() => {
+													const minutes = Math.round(b.avgMs! / 60000);
+													if (minutes < 60) return `${minutes}m`;
+													const hours = Math.floor(minutes / 60);
+													const remMin = minutes % 60;
+													if (hours < 24) return `${hours}h ${remMin}m`;
+													const days = Math.floor(hours / 24);
+													const remH = hours % 24;
+													return `${days}d ${remH}h`;
+											  })()}
+									</div>
+								</div>
+							))}
+							{trendBuckets.length === 0 && (
+								<div className="p-4 text-center text-gray-500">
+									No data in selected range
+								</div>
+							)}
 						</div>
 					</CardContent>
 				</Card>

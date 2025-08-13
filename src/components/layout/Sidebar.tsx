@@ -7,6 +7,7 @@ import {
 	Settings,
 	HelpCircle,
 	User as UserIcon,
+	Users as UsersIcon,
 } from "lucide-react";
 import { User } from "../../types";
 
@@ -34,6 +35,18 @@ const Sidebar: React.FC<SidebarProps> = ({ user }) => {
 			name: "Analytics",
 			to: "/analytics",
 			icon: <BarChart className="w-5 h-5" />,
+			forRoles: ["admin"],
+		},
+		{
+			name: "Admin Management",
+			to: "/admin-management",
+			icon: <Settings className="w-5 h-5" />,
+			forRoles: ["admin"],
+		},
+		{
+			name: "User Management",
+			to: "/user-management",
+			icon: <UsersIcon className="w-5 h-5" />,
 			forRoles: ["admin"],
 		},
 		{
