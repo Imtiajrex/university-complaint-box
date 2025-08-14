@@ -168,3 +168,8 @@ Tips
 
 - Set env var for convenience in a shell: export API="http://localhost:8787/api"; export TOKEN="<jwt>"
 - Dates are ISO strings in JSON.
+
+Interactive API docs
+
+- Swagger UI: http://localhost:8787/api/docs
+- OpenAPI JSON: http://localhost:8787/api/openapi.json
