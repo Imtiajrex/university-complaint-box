@@ -530,6 +530,948 @@ app.delete("/api/students/:id", async (c) => {
 	return c.json({ ok: true });
 });
 
+// ------------------------
+// OpenAPI + Swagger UI
+// ------------------------
+// Minimal, hand-written OpenAPI 3.0 spec that covers all routes.
+const openapiSpec: any = {
+	openapi: "3.0.3",
+	info: {
+		title: "University Complaint Box API",
+		version: "1.0.0",
+		description:
+			"REST API for authentication, complaints, and user management. Uses Bearer JWT auth.",
+	},
+	servers: [{ url: "http://localhost:8787" }],
+	components: {
+		securitySchemes: {
+			bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
+		},
+		schemas: {
+			Role: { type: "string", enum: ["student", "admin"] },
+			ComplaintStatus: {
+				type: "string",
+				enum: [
+					"pending",
+					"under-review",
+					"in-progress",
+					"resolved",
+					"rejected",
+				],
+			},
+			ComplaintCategory: {
+				type: "string",
+				enum: [
+					"academic",
+					"administrative",
+					"facilities",
+					"technical",
+					"other",
+				],
+			},
+			Department: {
+				type: "string",
+				enum: [
+					"computer-science",
+					"engineering",
+					"business",
+					"arts",
+					"sciences",
+					"student-affairs",
+					"facilities-management",
+					"it-services",
+					"other",
+				],
+			},
+			Error: {
+				type: "object",
+				properties: { detail: { type: "string" } },
+				required: ["detail"],
+			},
+			TokenResponse: {
+				type: "object",
+				properties: {
+					access_token: { type: "string" },
+					token_type: { type: "string", example: "bearer" },
+				},
+				required: ["access_token", "token_type"],
+			},
+			User: {
+				type: "object",
+				properties: {
+					id: { type: "string" },
+					name: { type: "string" },
+					email: { type: "string", format: "email" },
+					role: { $ref: "#/components/schemas/Role" },
+					department: { type: ["string", "null"] },
+					studentId: { type: ["string", "null"] },
+				},
+				required: ["id", "name", "email", "role"],
+			},
+			ComplaintResponse: {
+				type: "object",
+				properties: {
+					id: { type: "string" },
+					content: { type: "string" },
+					createdAt: { type: "string", format: "date-time" },
+					adminName: { type: "string" },
+					adminId: { type: "string" },
+				},
+				required: ["id", "content", "createdAt", "adminName", "adminId"],
+			},
+			ComplaintFeedback: {
+				anyOf: [
+					{
+						type: "object",
+						properties: {
+							rating: { type: "integer", minimum: 1, maximum: 5 },
+							comment: { type: "string" },
+						},
+						required: ["rating", "comment"],
+					},
+					{ type: "null" },
+				],
+			},
+			Complaint: {
+				type: "object",
+				properties: {
+					id: { type: "string" },
+					title: { type: "string" },
+					description: { type: "string" },
+					category: { $ref: "#/components/schemas/ComplaintCategory" },
+					department: { $ref: "#/components/schemas/Department" },
+					isAnonymous: { type: "boolean" },
+					status: { $ref: "#/components/schemas/ComplaintStatus" },
+					createdAt: { type: "string", format: "date-time" },
+					updatedAt: { type: "string", format: "date-time" },
+					studentId: { type: "string" },
+					studentName: { type: ["string", "null"] },
+					responses: {
+						type: "array",
+						items: { $ref: "#/components/schemas/ComplaintResponse" },
+					},
+					feedback: { $ref: "#/components/schemas/ComplaintFeedback" },
+				},
+				required: [
+					"id",
+					"title",
+					"description",
+					"category",
+					"department",
+					"isAnonymous",
+					"status",
+					"createdAt",
+					"updatedAt",
+					"studentId",
+					"responses",
+				],
+			},
+			RegisterBody: {
+				type: "object",
+				properties: {
+					name: { type: "string" },
+					email: { type: "string", format: "email" },
+					password: { type: "string" },
+					role: { $ref: "#/components/schemas/Role" },
+					department: { type: "string", nullable: true },
+					studentId: { type: "string", nullable: true },
+				},
+				required: ["name", "email", "password", "role"],
+			},
+			LoginForm: {
+				type: "object",
+				properties: {
+					username: { type: "string", format: "email" },
+					password: { type: "string" },
+				},
+				required: ["username", "password"],
+			},
+			CreateComplaintBody: {
+				type: "object",
+				properties: {
+					title: { type: "string" },
+					description: { type: "string" },
+					category: { $ref: "#/components/schemas/ComplaintCategory" },
+					department: { $ref: "#/components/schemas/Department" },
+					isAnonymous: { type: "boolean" },
+				},
+				required: ["title", "description", "category", "department"],
+			},
+			AddResponseBody: {
+				type: "object",
+				properties: { content: { type: "string" } },
+				required: ["content"],
+			},
+			AddFeedbackBody: {
+				type: "object",
+				properties: {
+					rating: { type: "integer", minimum: 1, maximum: 5 },
+					comment: { type: "string" },
+				},
+				required: ["rating", "comment"],
+			},
+			CreateAdminBody: {
+				type: "object",
+				properties: {
+					name: { type: "string" },
+					email: { type: "string", format: "email" },
+					password: { type: "string" },
+					department: { type: "string", nullable: true },
+				},
+				required: ["name", "email", "password"],
+			},
+			UpdateAdminBody: {
+				type: "object",
+				properties: {
+					name: { type: "string" },
+					email: { type: "string", format: "email" },
+					department: { type: "string", nullable: true },
+					password: { type: "string" },
+				},
+			},
+			OkResponse: {
+				type: "object",
+				properties: { ok: { type: "boolean", example: true } },
+				required: ["ok"],
+			},
+		},
+	},
+	paths: {
+		"/api/health": {
+			get: {
+				summary: "Health check",
+				responses: {
+					"200": {
+						description: "OK",
+						content: {
+							"application/json": {
+								schema: {
+									type: "object",
+									properties: { status: { type: "string", example: "ok" } },
+									required: ["status"],
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"/api/auth/register": {
+			post: {
+				summary: "Register a new user",
+				requestBody: {
+					required: true,
+					content: {
+						"application/json": {
+							schema: { $ref: "#/components/schemas/RegisterBody" },
+						},
+					},
+				},
+				responses: {
+					"200": {
+						description: "Token",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/TokenResponse" },
+							},
+						},
+					},
+					"400": {
+						description: "Bad Request",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+				},
+			},
+		},
+		"/api/auth/login": {
+			post: {
+				summary: "Login",
+				requestBody: {
+					required: true,
+					content: {
+						"application/x-www-form-urlencoded": {
+							schema: { $ref: "#/components/schemas/LoginForm" },
+						},
+					},
+				},
+				responses: {
+					"200": {
+						description: "Token",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/TokenResponse" },
+							},
+						},
+					},
+					"400": {
+						description: "Incorrect credentials",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+				},
+			},
+		},
+		"/api/auth/me": {
+			get: {
+				summary: "Current user",
+				security: [{ bearerAuth: [] }],
+				responses: {
+					"200": {
+						description: "User",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/User" },
+							},
+						},
+					},
+					"401": {
+						description: "Unauthorized",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+				},
+			},
+		},
+		"/api/complaints": {
+			get: {
+				summary: "List complaints",
+				security: [{ bearerAuth: [] }],
+				parameters: [
+					{
+						name: "status_filter",
+						in: "query",
+						schema: { $ref: "#/components/schemas/ComplaintStatus" },
+					},
+				],
+				responses: {
+					"200": {
+						description: "List",
+						content: {
+							"application/json": {
+								schema: {
+									type: "array",
+									items: { $ref: "#/components/schemas/Complaint" },
+								},
+							},
+						},
+					},
+					"401": {
+						description: "Unauthorized",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+				},
+			},
+			post: {
+				summary: "Create complaint",
+				security: [{ bearerAuth: [] }],
+				requestBody: {
+					required: true,
+					content: {
+						"application/json": {
+							schema: { $ref: "#/components/schemas/CreateComplaintBody" },
+						},
+					},
+				},
+				responses: {
+					"200": {
+						description: "Created",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Complaint" },
+							},
+						},
+					},
+					"400": {
+						description: "Bad Request",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"401": {
+						description: "Unauthorized",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+				},
+			},
+		},
+		"/api/complaints/{id}": {
+			get: {
+				summary: "Get complaint by id",
+				security: [{ bearerAuth: [] }],
+				parameters: [
+					{
+						name: "id",
+						in: "path",
+						required: true,
+						schema: { type: "string" },
+					},
+				],
+				responses: {
+					"200": {
+						description: "Complaint",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Complaint" },
+							},
+						},
+					},
+					"401": {
+						description: "Unauthorized",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"403": {
+						description: "Forbidden",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"404": {
+						description: "Not Found",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+				},
+			},
+		},
+		"/api/complaints/{id}/status": {
+			patch: {
+				summary: "Update complaint status (admin)",
+				description: "Admin only",
+				security: [{ bearerAuth: [] }],
+				parameters: [
+					{
+						name: "id",
+						in: "path",
+						required: true,
+						schema: { type: "string" },
+					},
+					{
+						name: "new_status",
+						in: "query",
+						required: true,
+						schema: { $ref: "#/components/schemas/ComplaintStatus" },
+					},
+				],
+				responses: {
+					"200": {
+						description: "Updated",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Complaint" },
+							},
+						},
+					},
+					"400": {
+						description: "Missing/invalid query",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"401": {
+						description: "Unauthorized",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"403": {
+						description: "Admin required",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"404": {
+						description: "Not Found",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+				},
+			},
+		},
+		"/api/complaints/{id}/responses": {
+			post: {
+				summary: "Add admin response (admin)",
+				description: "Admin only",
+				security: [{ bearerAuth: [] }],
+				parameters: [
+					{
+						name: "id",
+						in: "path",
+						required: true,
+						schema: { type: "string" },
+					},
+				],
+				requestBody: {
+					required: true,
+					content: {
+						"application/json": {
+							schema: { $ref: "#/components/schemas/AddResponseBody" },
+						},
+					},
+				},
+				responses: {
+					"200": {
+						description: "Updated complaint",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Complaint" },
+							},
+						},
+					},
+					"400": {
+						description: "Invalid JSON",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"401": {
+						description: "Unauthorized",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"403": {
+						description: "Admin required",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"404": {
+						description: "Not Found",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+				},
+			},
+		},
+		"/api/complaints/{id}/feedback": {
+			post: {
+				summary: "Add feedback (owner only)",
+				security: [{ bearerAuth: [] }],
+				parameters: [
+					{
+						name: "id",
+						in: "path",
+						required: true,
+						schema: { type: "string" },
+					},
+				],
+				requestBody: {
+					required: true,
+					content: {
+						"application/json": {
+							schema: { $ref: "#/components/schemas/AddFeedbackBody" },
+						},
+					},
+				},
+				responses: {
+					"200": {
+						description: "Updated complaint",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Complaint" },
+							},
+						},
+					},
+					"400": {
+						description: "Invalid feedback",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"401": {
+						description: "Unauthorized",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"403": {
+						description: "Owner only",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"404": {
+						description: "Not Found",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+				},
+			},
+		},
+		"/api/admins": {
+			get: {
+				summary: "List admins (admin)",
+				security: [{ bearerAuth: [] }],
+				responses: {
+					"200": {
+						description: "Admins",
+						content: {
+							"application/json": {
+								schema: {
+									type: "array",
+									items: { $ref: "#/components/schemas/User" },
+								},
+							},
+						},
+					},
+					"401": {
+						description: "Unauthorized",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"403": {
+						description: "Admin required",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+				},
+			},
+			post: {
+				summary: "Create admin (admin)",
+				security: [{ bearerAuth: [] }],
+				requestBody: {
+					required: true,
+					content: {
+						"application/json": {
+							schema: { $ref: "#/components/schemas/CreateAdminBody" },
+						},
+					},
+				},
+				responses: {
+					"201": {
+						description: "Created",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/User" },
+							},
+						},
+					},
+					"400": {
+						description: "Validation error/existing user",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"401": {
+						description: "Unauthorized",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"403": {
+						description: "Admin required",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+				},
+			},
+		},
+		"/api/admins/{id}": {
+			patch: {
+				summary: "Update admin (admin)",
+				security: [{ bearerAuth: [] }],
+				parameters: [
+					{
+						name: "id",
+						in: "path",
+						required: true,
+						schema: { type: "string" },
+					},
+				],
+				requestBody: {
+					required: true,
+					content: {
+						"application/json": {
+							schema: { $ref: "#/components/schemas/UpdateAdminBody" },
+						},
+					},
+				},
+				responses: {
+					"200": {
+						description: "Updated",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/User" },
+							},
+						},
+					},
+					"401": {
+						description: "Unauthorized",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"403": {
+						description: "Admin required",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"404": {
+						description: "Not Found",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+				},
+			},
+			delete: {
+				summary: "Delete admin (admin)",
+				security: [{ bearerAuth: [] }],
+				parameters: [
+					{
+						name: "id",
+						in: "path",
+						required: true,
+						schema: { type: "string" },
+					},
+				],
+				responses: {
+					"200": {
+						description: "Deleted",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/OkResponse" },
+							},
+						},
+					},
+					"400": {
+						description: "Deleting self/last admin",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"401": {
+						description: "Unauthorized",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"403": {
+						description: "Admin required",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"404": {
+						description: "Not Found",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+				},
+			},
+		},
+		"/api/students": {
+			get: {
+				summary: "List students (admin)",
+				security: [{ bearerAuth: [] }],
+				parameters: [
+					{ name: "q", in: "query", schema: { type: "string" } },
+					{
+						name: "department",
+						in: "query",
+						schema: { $ref: "#/components/schemas/Department" },
+					},
+				],
+				responses: {
+					"200": {
+						description: "Students",
+						content: {
+							"application/json": {
+								schema: {
+									type: "array",
+									items: { $ref: "#/components/schemas/User" },
+								},
+							},
+						},
+					},
+					"401": {
+						description: "Unauthorized",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"403": {
+						description: "Admin required",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+				},
+			},
+		},
+		"/api/students/{id}": {
+			delete: {
+				summary: "Delete student (admin)",
+				security: [{ bearerAuth: [] }],
+				parameters: [
+					{
+						name: "id",
+						in: "path",
+						required: true,
+						schema: { type: "string" },
+					},
+				],
+				responses: {
+					"200": {
+						description: "Deleted",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/OkResponse" },
+							},
+						},
+					},
+					"400": {
+						description: "Not a student",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"401": {
+						description: "Unauthorized",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"403": {
+						description: "Admin required",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+					"404": {
+						description: "Not Found",
+						content: {
+							"application/json": {
+								schema: { $ref: "#/components/schemas/Error" },
+							},
+						},
+					},
+				},
+			},
+		},
+	},
+};
+
+app.get("/api/openapi.json", (c) => c.json(openapiSpec));
+
+const swaggerHtml = `<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title>API Docs</title>
+		<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist/swagger-ui.css" />
+	</head>
+	<body>
+		<div id="swagger-ui"></div>
+		<script src="https://unpkg.com/swagger-ui-dist/swagger-ui-bundle.js"></script>
+		<script>
+			window.ui = SwaggerUIBundle({
+				url: '/api/openapi.json',
+				dom_id: '#swagger-ui',
+				presets: [SwaggerUIBundle.presets.apis],
+				layout: 'BaseLayout',
+			});
+		</script>
+	</body>
+</html>`;
+
+app.get("/api/docs", (c) => c.html(swaggerHtml));
+
 // Start server when executed under Bun
 const port = Number(8787);
 // @ts-ignore - Bun global exists when running under Bun
