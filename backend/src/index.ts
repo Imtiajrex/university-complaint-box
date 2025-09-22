@@ -4,6 +4,10 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { sign, verify } from "jsonwebtoken";
 import { Collection, Db, MongoClient } from "mongodb";
+import * as nodeCrypto from "crypto";
+// Dynamic require to avoid type issues if @types not installed
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { v2: cloudinary } = require("cloudinary");
 
 dotenv.config();
 
@@ -15,6 +19,22 @@ const ACCESS_TOKEN_EXPIRE_MINUTES = Number(
 const MONGO_URL = process.env.MONGO_URL || "";
 if (!SECRET_KEY) throw new Error("SECRET_KEY not set in backend/.env");
 if (!MONGO_URL) throw new Error("MONGO_URL not set in backend/.env");
+
+// Cloudinary env (optional but required for media uploads)
+const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || "";
+const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY || "";
+const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET || "";
+const CLOUDINARY_UPLOAD_FOLDER =
+	process.env.CLOUDINARY_UPLOAD_FOLDER || "complaints";
+
+if (CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET) {
+	cloudinary.config({
+		cloud_name: CLOUDINARY_CLOUD_NAME,
+		api_key: CLOUDINARY_API_KEY,
+		api_secret: CLOUDINARY_API_SECRET,
+		secure: true,
+	});
+}
 
 // Types
 type Role = "student" | "admin";
@@ -80,6 +100,7 @@ type ComplaintDoc = {
 	studentName?: string | null;
 	responses: ComplaintResponse[];
 	feedback: ComplaintFeedback;
+	media?: { url: string; public_id: string; resource_type: string }[]; // optional legacy support
 };
 
 type ComplaintOut = ComplaintDoc;
@@ -114,6 +135,16 @@ const createAccessToken = (sub: string) => {
 		Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRE_MINUTES * 60;
 	return sign({ sub, exp: expSeconds }, SECRET_KEY);
 };
+
+// Utility for generating a Cloudinary upload signature on the server.
+function generateCloudinarySignature(params: Record<string, any>): string {
+	const sorted = Object.keys(params)
+		.sort()
+		.map((k) => `${k}=${params[k]}`)
+		.join("&");
+	const toSign = `${sorted}${CLOUDINARY_API_SECRET}`;
+	return nodeCrypto.createHash("sha1").update(toSign).digest("hex");
+}
 
 const getCurrentUser = async (c: any): Promise<UserOut | null> => {
 	const auth = c.req.header("authorization") || "";
@@ -156,6 +187,30 @@ app.use(
 
 // Health
 app.get("/api/health", (c) => c.json({ status: "ok" }));
+
+// Upload: Get Cloudinary upload signature
+app.post("/api/uploads/signature", async (c) => {
+	const u = await getCurrentUser(c);
+	if (!u) return c.json({ detail: "Could not validate credentials" }, 401);
+	// Allow both students and admins to upload media for complaints
+	if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
+		return c.json({ detail: "Cloudinary not configured" }, 500);
+	}
+	const body = await c.req.json().catch(() => ({}));
+	const { resource_type = "image" } = body as { resource_type?: string };
+	const timestamp = Math.floor(Date.now() / 1000);
+	const folder = CLOUDINARY_UPLOAD_FOLDER;
+	const paramsToSign: Record<string, any> = { folder, timestamp }; // unsigned preset not used; we sign
+	// Optional: restrict resource_type by not including it in signature (Cloudinary docs: only signed params matter)
+	const signature = generateCloudinarySignature(paramsToSign);
+	return c.json({
+		cloud_name: CLOUDINARY_CLOUD_NAME,
+		api_key: CLOUDINARY_API_KEY,
+		timestamp,
+		folder,
+		signature,
+	});
+});
 
 // Auth: Register
 app.post("/api/auth/register", async (c) => {
@@ -217,19 +272,34 @@ app.post("/api/complaints", async (c) => {
 	if (!u) return c.json({ detail: "Could not validate credentials" }, 401);
 	const body = await c.req.json().catch(() => null);
 	if (!body) return c.json({ detail: "Invalid JSON" }, 400);
-	const { title, description, category, department, isAnonymous } = body as {
-		title: string;
-		description: string;
-		category: ComplaintCategory;
-		department: Department;
-		isAnonymous?: boolean;
-	};
+	const { title, description, category, department, isAnonymous, media } =
+		body as {
+			title: string;
+			description: string;
+			category: ComplaintCategory;
+			department: Department;
+			isAnonymous?: boolean;
+			media?: { url: string; public_id: string; resource_type: string }[];
+		};
 	if (!title || !description || !category || !department)
 		return c.json({ detail: "Missing required fields" }, 400);
 
 	await getDb();
 	const now = new Date();
 	const id = crypto.randomUUID();
+	const sanitizedMedia = Array.isArray(media)
+		? media
+				.filter(
+					(m) =>
+						m &&
+						typeof m.url === "string" &&
+						/^https:\/\//.test(m.url) &&
+						typeof m.public_id === "string" &&
+						typeof m.resource_type === "string"
+				)
+				.slice(0, 6) // limit number of attachments
+		: [];
+
 	const doc: ComplaintDoc = {
 		id,
 		title,
@@ -244,6 +314,7 @@ app.post("/api/complaints", async (c) => {
 		studentName: isAnonymous ? null : u.name,
 		responses: [],
 		feedback: null,
+		media: sanitizedMedia,
 	};
 	await complaintsCol.insertOne(doc);
 	return c.json(doc);
@@ -1478,5 +1549,4 @@ const port = Number(8787);
 if (typeof Bun !== "undefined" && (Bun as any)?.serve) {
 	// @ts-ignore - types provided by @types/bun in devDependencies
 	Bun.serve({ port, fetch: app.fetch });
-	console.log(`API listening on http://localhost:${port}`);
 }

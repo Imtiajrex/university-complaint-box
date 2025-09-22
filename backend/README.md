@@ -13,6 +13,8 @@ Environment
 - MONGO_URL: Mongo connection string including DB name (required)
 - ACCESS_TOKEN_EXPIRE_MINUTES: default 60
 - REACT_APP_BACKEND_URL: frontend base, e.g. http://localhost:8787/api
+- CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET: credentials for media uploads (required for upload/signature endpoint)
+- CLOUDINARY_UPLOAD_FOLDER: optional folder name (default: complaints)
 
 Base URL and auth
 
@@ -166,10 +168,13 @@ Data models (response shape)
 
 Tips
 
-- Set env var for convenience in a shell: export API="http://localhost:8787/api"; export TOKEN="<jwt>"
-- Dates are ISO strings in JSON.
-
 Interactive API docs
 
-- Swagger UI: http://localhost:8787/api/docs
+Media uploads (Cloudinary)
+
+- POST /uploads/signature
+  - Auth: Bearer (student or admin)
+  - 200: { cloud_name, api_key, timestamp, folder, signature }
+  - Use response to POST file directly to: https://api.cloudinary.com/v1_1/<cloud_name>/<image|video>/upload with form fields file, api_key, timestamp, folder, signature. Then include returned { secure_url -> url, public_id, resource_type } objects as media[] when creating a complaint.
+  - Limit: currently server accepts up to 6 attachments per complaint (enforced on create).
 - OpenAPI JSON: http://localhost:8787/api/openapi.json

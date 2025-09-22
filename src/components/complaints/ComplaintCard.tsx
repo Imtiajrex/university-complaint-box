@@ -146,6 +146,40 @@ const ComplaintCard: React.FC<ComplaintCardProps> = ({
 						</p>
 					</div>
 				)}
+
+				{complaint.media && complaint.media.length > 0 && (
+					<div className="mt-4">
+						<h4 className="font-medium text-sm text-gray-700 mb-2">
+							Attachments
+						</h4>
+						<div className="flex flex-wrap gap-3">
+							{complaint.media.map((m) => (
+								<div key={m.public_id} className="w-32">
+									{m.resource_type === "image" ? (
+										<a
+											href={m.url}
+											target="_blank"
+											rel="noreferrer"
+											className="block"
+										>
+											<img
+												src={m.url}
+												alt="attachment"
+												className="rounded border object-cover h-24 w-full"
+											/>
+										</a>
+									) : (
+										<video
+											controls
+											src={m.url}
+											className="rounded border object-cover h-24 w-full"
+										/>
+									)}
+								</div>
+							))}
+						</div>
+					</div>
+				)}
 			</CardContent>
 
 			<CardFooter className="flex justify-between">
