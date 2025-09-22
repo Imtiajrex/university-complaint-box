@@ -7,7 +7,8 @@ export type LoginResponse = { access_token: string; token_type: string };
 const getBackendUrl = (): string => {
 	// Per platform rules, the frontend must use REACT_APP_BACKEND_URL
 	// We try both import.meta.env and process.env for compatibility
-	const url = "https://university-complaint-box.onrender.com/api";
+	// const url = "https://university-complaint-box.onrender.com/api";
+	const url = "http://localhost:3000/api";
 	if (!url) {
 		throw new Error(
 			"REACT_APP_BACKEND_URL is not set. Please set it in the frontend environment."
@@ -93,11 +94,21 @@ export const api = {
 		category: string;
 		department: string;
 		isAnonymous: boolean;
+		media?: { url: string; public_id: string; resource_type: string }[];
 	}) {
 		const res = await fetch(`${getBackendUrl()}/complaints`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json", ...withAuthHeaders() },
 			body: JSON.stringify(body),
+		});
+		return handleResponse(res);
+	},
+
+	async getUploadSignature(resource_type?: string) {
+		const res = await fetch(`${getBackendUrl()}/uploads/signature`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", ...withAuthHeaders() },
+			body: JSON.stringify({ resource_type }),
 		});
 		return handleResponse(res);
 	},
